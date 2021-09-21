@@ -170,6 +170,7 @@ async def setu_new(bot,ev):
                 ID = ID + 1
             except Exception as e:
                 await bot.send(ev,f'添加失败,{e}')
+    await bot.send(ev,'初始化完成')
 
 
 @sv.on_prefix(['本地涩图','本地色图','涩图','色图'])
