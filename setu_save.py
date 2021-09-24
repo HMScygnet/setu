@@ -9,23 +9,24 @@ from asyncio import sleep
 from datetime import datetime,timedelta
 
 from nonebot import get_bot
-from .setu_number import SetuNumber
-from hoshino import Service, priv, R
+from .setu import SetuNumber
+from hoshino import R, Service, priv
 from hoshino.typing import CQEvent
 
-setu_number = SetuNumber()
-SEARCH_TIMEOUT = 300
+sm = SetuNumber()
+SEARCH_TIMEOUT = 300 #连续对话等待时间
+setu_folder = R.img('setu/').path
 obot = get_bot()
 sv = Service('setu_save')
-head = '' #你 go-cqhttp.exe 的位置,记得最后加斜杠
-res = setu_folder = R.img('setu/').path
+head = ''            #你go-cqhttp.exe所在的文件夹,记得最后加斜杠
+res = setu_folder
 
 def mymovefile(file):
     srcfile = head + file
     name = os.path.basename(srcfile)
     dstfile = res
     shutil.move(srcfile,dstfile)
-    return name        
+    return name         #移动文件
 
 
 
@@ -88,9 +89,9 @@ async def start_finder(bot, ev: CQEvent):
         img = await obot.get_image(file = url)
         file_road = img['file']
         file_url = mymovefile(file_road)
-        ID = int(time())
-        setu_number.add_setu(ID,file_url)
-        await bot.send(ev, f'图片已保存,编号为{ID}')
+        sm.add_setu(file_url)
+        id = sm.get_setu_id(file_url)
+        await bot.send(ev, f'图片已保存,编号为{id}')
     except:
         await bot.send(ev, '图片保存失败')
 
@@ -122,9 +123,9 @@ async def picmessage(bot, ev: CQEvent):
         img = await obot.get_image(file = url)
         file_road = img['file']
         file_url = mymovefile(file_road)
-        ID = int(time())
-        setu_number.add_setu(ID,file_url)
-        await bot.send(ev, f'图片已保存,编号为{ID}')
+        sm.add_setu(file_url)
+        id = sm.get_setu_id(file_url)
+        await bot.send(ev, f'图片已保存,编号为{id}')
     except:
         await bot.send(ev, '图片保存失败')
 
