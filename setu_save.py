@@ -1,25 +1,21 @@
-from asyncio.events import set_child_watcher
-from logging import exception
 import re
 import os, shutil
-from time import time
-from nonebot import *
 
 from asyncio import sleep
 from datetime import datetime,timedelta
-
 from nonebot import get_bot
-from .setu import SetuNumber
-from hoshino import R, Service, priv
+from .module import SetuNumber, PicListener, porn_pic_index
+from hoshino import Service, priv, R
 from hoshino.typing import CQEvent
 
 sm = SetuNumber()
-SEARCH_TIMEOUT = 300 #连续对话等待时间
-setu_folder = R.img('setu/').path
+pls=PicListener()
+
+SEARCH_TIMEOUT = 300
 obot = get_bot()
 sv = Service('setu_save')
-head = ''            #你go-cqhttp.exe所在的文件夹,记得最后加斜杠
-res = setu_folder
+head = '' #
+res = R.img('setu/').path
 
 def mymovefile(file):
     srcfile = head + file
@@ -28,35 +24,9 @@ def mymovefile(file):
     shutil.move(srcfile,dstfile)
     return name         #移动文件
 
-
-
-
-class PicListener:
-    def __init__(self):
-        self.on = {}
-        self.count = {}
-        self.timeout = {}
-
-    def get_on_off_status(self, gid):
-        return self.on[gid] if self.on.get(gid) is not None else False
-
-    def turn_on(self, gid, uid):
-        self.on[gid] = uid
-        self.timeout[gid] = datetime.now()+timedelta(seconds=SEARCH_TIMEOUT)
-        self.count[gid] = 0
-
-    def turn_off(self, gid):
-        self.on[gid] = None
-        self.count[gid] = None
-        self.timeout[gid] = None
-
-    def count_plus(self, gid):
-        self.count[gid] += 1
-
-
-
-pls=PicListener()
-
+def get_file_content(filePath):
+    with open(filePath, 'rb') as fp:
+        return fp.read()
 
 @sv.on_prefix('存图')
 async def start_finder(bot, ev: CQEvent):
@@ -88,10 +58,17 @@ async def start_finder(bot, ev: CQEvent):
     try:
         img = await obot.get_image(file = url)
         file_road = img['file']
-        file_url = mymovefile(file_road)
-        sm.add_setu(file_url)
-        id = sm.get_setu_id(file_url)
-        await bot.send(ev, f'图片已保存,编号为{id}')
+        file_name = mymovefile(file_road)
+        porn = porn_pic_index(file_name)
+        if porn['code'] == 0:
+            score = porn['value']
+            sm.add_setu(file_name,score)
+        else:
+            msg = porn['msg']
+            await bot.send(ev, f'获取分数失败,{msg}')
+            return
+        id = sm.get_setu_id(file_name)
+        await bot.send(ev, f'图片已保存,编号为{id},色图评分:{score}')
     except:
         await bot.send(ev, '图片保存失败')
 
@@ -122,12 +99,19 @@ async def picmessage(bot, ev: CQEvent):
     try:
         img = await obot.get_image(file = url)
         file_road = img['file']
-        file_url = mymovefile(file_road)
-        sm.add_setu(file_url)
-        id = sm.get_setu_id(file_url)
-        await bot.send(ev, f'图片已保存,编号为{id}')
-    except:
-        await bot.send(ev, '图片保存失败')
+        porn = porn_pic_index(file_road)
+        file_name = mymovefile(file_road)
+        if porn['code'] == 0:
+            score = porn['value']
+            sm.add_setu(file_name,score)
+        else:
+            msg = porn['msg']
+            await bot.send(ev, f'获取积分失败,{msg}')
+            return
+        id = sm.get_setu_id(file_name)
+        await bot.send(ev, f'图片已保存,编号为{id},色图评分:{score}')
+    except Exception as e:
+        await bot.send(ev, f'图片保存失败{e}')
 
 @sv.on_prefix('退出存图')
 async def thanks(bot, ev: CQEvent):
@@ -137,3 +121,32 @@ async def thanks(bot, ev: CQEvent):
     pls.turn_off(ev.group_id)
     await bot.send(ev, '已退出')
     return
+
+#群聊存图容易被屏蔽,私聊存图好一点
+@obot.on_message('private')
+async def private_setu(ctx):
+    uid=int(ctx["sender"]["user_id"])
+    sid=int(ctx["self_id"])
+    gid = 0
+    ret = re.match(r"\[CQ:image,file=(.*?),url=(.*?)\]", str(ctx['message']))
+    if not uid == 619275505:
+        return
+    if not ret:
+        return
+    url = ret.group(1)
+    try:
+        img = await obot.get_image(file = url)
+        file_road = img['file']
+        porn = porn_pic_index(file_road)
+        file_name = mymovefile(file_road)
+        if porn['code'] == 0:
+            score = porn['value']
+            sm.add_setu(file_name,score)
+        else:
+            msg = porn['msg']
+            await obot.send_msg(self_id=sid, user_id=uid, group_id=gid, message=f'获取分数失败,{msg}')
+            return
+        id = sm.get_setu_id(file_name)
+        await obot.send_msg(self_id=sid, user_id=uid, group_id=gid, message=f'图片已保存,编号为{id},色图评分:{score}')
+    except Exception as e:
+        await obot.send_msg(self_id=sid, user_id=uid, group_id=gid, message=f'图片保存失败{e}')

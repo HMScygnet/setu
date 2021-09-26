@@ -1,19 +1,14 @@
 import os
 import random
 import asyncio
-from nonebot.exceptions import CQHttpError
-from datetime import datetime, timedelta
-import sqlite3
-import time
 import hoshino
-import traceback
 import nonebot
-import re
-import hashlib
+from .module import SetuNumber
 from hoshino import R, Service, priv
-from hoshino.util import FreqLimiter, DailyNumberLimiter
+from hoshino.util import FreqLimiter
 from hoshino.typing import MessageSegment
 
+file = os.path.join(os.path.dirname(__file__), 'setu')
 db_path = os.path.join(os.path.dirname(__file__), 'setu.db')
 _flmt = FreqLimiter(30)        #涩图冷却时间
 PIC_SHOW_TIME = 40             #涩图撤回时间
@@ -21,59 +16,7 @@ PIC_SHOW_TIME = 40             #涩图撤回时间
 sv = Service('setu', manage_priv=priv.SUPERUSER, enable_on_default=True, visible=False)
 setu_folder = R.img('setu/').path
 
-class SetuNumber:
-    def __init__(self):
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self.create_table()
 
-    def _connect(self):
-        return sqlite3.connect(db_path)
-
-    def create_table(self):
-        try:
-            c = self._connect()
-            c.execute('''CREATE TABLE IF NOT EXISTS SETU
-            (ID      integer NOT NULL PRIMARY KEY AUTOINCREMENT,
-             URL     TEXT    NOT NULL);''')
-            c.commit()
-            c.close()
-        except:
-            raise Exception('创建表发生错误')
-    
-    def add_setu(self,URL):
-        try:
-            c = self._connect()
-            c.execute("INSERT INTO SETU (ID,URL) \
-            VALUES (NULL,?)",(URL,))
-            c.commit()
-            c.close()  
-        except:
-            raise Exception('更新表发生错误')
-
-    def get_setu_url(self,ID):
-        try:
-            c = self._connect()
-            r = c.execute("SELECT URL FROM SETU WHERE ID=?",(ID,)).fetchone()
-            return 0 if r is None else r[0]
-        except:
-            raise Exception('查找表发生错误')
-
-    def get_setu_id(self,URL):
-        try:
-            c = self._connect()
-            r = c.execute("SELECT ID FROM SETU WHERE URL=?",(URL,)).fetchone()
-            return 0 if r is None else r[0]
-        except:
-            raise Exception('查找表发生错误')
-
-    def delete_setu(self,ID):
-        try:
-            c = self._connect()
-            c.execute("DELETE from SETU where ID=?;",(ID,))
-            c.commit()
-            c.close()
-        except:
-            raise Exception('删除表发生错误')
 sm = SetuNumber()
 
 def setu_gener():
@@ -126,10 +69,12 @@ async def setu(bot, ev):
         pic = get_setu()
         name = os.path.basename(pic.path)
         id = sm.get_setu_id(name)
-        msg = f'编号:{id}{pic.cqcode}'
+        porn_num = sm.get_setu_score(id)
+        msg = f'编号:{id}{pic.cqcode}\n色图评分:{porn_num}'
         msg_list.append(msg)
     await send_msg(msg_list, ev)
     await bot.send(ev,'如果有不色的图可以用"删除涩图+编号"指令删除,无需加号')
+#需要撤回功能的话就把注释删掉
 '''
     result_list = await send_msg(msg_list, ev)
     await bot.send(ev,f'涩图将在{PIC_SHOW_TIME}秒后撤回')
@@ -142,6 +87,10 @@ async def setu(bot, ev):
             hoshino.logger.error('[ERROR]撤回失败')
             await asyncio.sleep(1)
 '''
+
+@sv.on_fullmatch(('不够色','不色','一点都不色'))
+async def setu_re(bot,ev):
+    await bot.send(ev,'那你发')
 
 @sv.on_rex(r'[涩瑟色]图|来一?[点份张].*[涩瑟色]|再来[点份张]|看过了')
 async def setu_res(bot, ev):
@@ -159,10 +108,12 @@ async def setu_res(bot, ev):
     pic = get_setu()
     name = os.path.basename(pic.path)
     id = sm.get_setu_id(name)
-    msg = f'编号:{id}{pic.cqcode}'
+    porn_num = sm.get_setu_score(id)
+    msg = f'编号:{id}{pic.cqcode}\n色图评分:{porn_num}'
     msg_list.append(msg)
     await send_msg(msg_list, ev)
     await bot.send(ev,'如果有不色的图可以用"删除涩图+编号"指令删除,无需加号')
+#需要撤回功能的话就把注释删掉
 ''' 
     result_list = await send_msg(msg_list, ev)
     await bot.send(ev,f'涩图将在{PIC_SHOW_TIME}秒后撤回')
@@ -174,24 +125,25 @@ async def setu_res(bot, ev):
             traceback.print_exc()
             hoshino.logger.error('[ERROR]撤回失败')
             await asyncio.sleep(1)
-    '''
-@sv.on_fullmatch(('不够色','不色','一点都不色'))
-async def setu_re(bot,ev):
-    await bot.send(ev,'那你发')
-
+'''
 @sv.on_prefix(('发图','查图','看图'))
 async def setu_send(bot,ev):
     arg = ev.message.extract_plain_text().split()
     if not arg:
-        await bot.send(ev,'请输入编号')
+        await bot.send(ev,'请输入编号或图片名')
         return
-    id = arg[0]
-    name = sm.get_setu_url(id)
+    text = arg[0]
+    name = sm.get_setu_url(text)
     if name == 0:
-        await bot.send(ev,'请检查编号是否正确')
-        return
+        id = sm.get_setu_id(text)
+        name = text
+        if id == 0:
+            await bot.send(ev,'编号或图片名不存在')
+            return
+    else:
+        id = text
     url = os.path.join(setu_folder,name)
-    await bot.send(ev,str(MessageSegment.image(f'file:///{os.path.abspath(url)}')))
+    await bot.send(ev,f'编号:{id}'+ str(MessageSegment.image(f'file:///{os.path.abspath(url)}')))
 
 @sv.on_fullmatch('色图数量')
 async def setu_num(bot,ev):
@@ -237,4 +189,4 @@ async def setu_num_delete(bot,ev):
             await bot.send(ev,'删除成功')
         except Exception as e:
             await bot.send(ev,f'删除失败{e}')
-            return
+            return  
